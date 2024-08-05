@@ -4,11 +4,11 @@
 
 Before Starting up, you will need to configure the agent, by setting the credentials in the contrast_security.yaml. DO NOT CHECK THIS IN TO GIT.
 During the docker build process it will download the latest agent version.
-Whether Assess or Protect are enabled are controlled by environment variables in the docker-compose.yaml file. This allows you to quickly enable/disable Assess/Protect without rebuilding the docker images.
+Whether Assess or Protect are enabled are controlled by environment variables in the `.env` and `docker-compose.yaml` files. This allows you to quickly enable/disable Assess/Protect without rebuilding the docker images.
 Just change the values and restart ( docker-compose up ).
 
 ## Setup
-
+Open the `.env` file and edit the value of the `INITIALS` environment variable, replacing `REPLACE_ME` with your initials. These initials are used for Server and Application naming in the `docker_compose.yaml` file.
 
 Run the services up using docker ( from the root of the project )
 ```docker-compose up```
