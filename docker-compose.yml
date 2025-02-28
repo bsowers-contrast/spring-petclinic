@@ -1,3 +1,4 @@
+
 services:
   db-1:
     image: mysql:8.0
@@ -8,11 +9,9 @@ services:
     environment:
       - MYSQL_ROOT_PASSWORD=
       - MYSQL_ALLOW_EMPTY_PASSWORD=true
-
     # Disabling docker profile because for a demo we are only ever using the mysql db.
 #    profiles:
 #    - mysql
-
     volumes:
     # initialize the mysql dbs and users for the petclinic app.  The petclinic app
     # itself will handle initializing the database tables and schemas along with
@@ -23,23 +22,44 @@ services:
       test: [ "CMD", "mysqladmin" ,"ping", "-h", "localhost" ]
       timeout: 5s
       retries: 30
-  email-service-detection:
-    entrypoint: ["java","-javaagent:/contrast.jar","-Dcom.sun.jndi.ldap.object.trustURLCodebase=true","-jar","/app.jar", "--server.port=8081"]
+
+  reverse-proxy-petclinic:
+    image: nginx
+    container_name: "nginx-petclinic"
+    links:
+    #   - email-service-assess
+    #   - email-service-protect
+      # - petclinic-app-assess
+      - petclinic-app-protect
+    #   - log4shell-service
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+    ports:
+      - "10000:10000"
+
+  email-service-assess:
+    entrypoint: [
+      "java","-javaagent:/contrast.jar",
+      "-Dcom.sun.jndi.ldap.object.trustURLCodebase=true",
+      "-jar","/app.jar", "--server.port=8080"]
     environment:
-      CONTRAST__SERVER__NAME: "${INITIALS}-ADR-QA"
-      CONTRAST__SERVER__ENVIRONMENT: "QA"
+      CONTRAST__SERVER__NAME: "${INITIALS}-ADR-DEV"
+      CONTRAST__SERVER__ENVIRONMENT: "DEVELOPMENT"
       CONTRAST__APPLICATION__NAME: "${INITIALS}-ADR-${EMAIL_SERVICE_NAME}"
       CONTRAST__ASSESS__ENABLE: ${CONTRAST__ASSESS__ENABLE}
-      CONTRAST__PROTECT__ENABLE: ${CONTRAST__PROTECT__ENABLE}
+      CONTRAST__PROTECT__ENABLE: False
       CONTRAST__OBSERVE__ENABLE: ${CONTRAST__OBSERVE__ENABLE}
-
+      CONTRAST__APPLICATION__SESSION_METADATA: "testRun=${PIPELINE_RUN_NUMBER}"
     build:
       context: ./
       dockerfile: EmailService/Dockerfile
-    ports:
-      - 8081:8081
-  email-service-protection:
-    entrypoint: ["java","-javaagent:/contrast.jar","-Dcom.sun.jndi.ldap.object.trustURLCodebase=true","-jar","/app.jar", "--server.port=8181"]
+
+
+  email-service-protect:
+    entrypoint: [
+      "java","-javaagent:/contrast.jar",
+      "-Dcom.sun.jndi.ldap.object.trustURLCodebase=true",
+      "-jar","/app.jar", "--server.port=8080"]
     environment:
       CONTRAST__SERVER__NAME: "${INITIALS}-ADR-PROD"
       CONTRAST__SERVER__ENVIRONMENT: "PRODUCTION"
@@ -47,41 +67,86 @@ services:
       CONTRAST__ASSESS__ENABLE: ${CONTRAST__ASSESS__ENABLE}
       CONTRAST__PROTECT__ENABLE: ${CONTRAST__PROTECT__ENABLE}
       CONTRAST__OBSERVE__ENABLE: ${CONTRAST__OBSERVE__ENABLE}
-
+      CONTRAST__ASSESS__TAGS: "Production"
     build:
       context: ./
       dockerfile: EmailService/Dockerfile
-    ports:
-      - 8181:8181
+
   log4shell-service:
     container_name: Log4ShellServer
     build:
       context: Log4ShellServer/
       dockerfile: Dockerfile
     ports:
-      - 8082:8082
       - 1389:1389
-  petclinic-app-detection:
-    command: ["java","-javaagent:/contrast.jar","-Dagent.java.observe_tracing_sampling_limit=1000","-Dagent.java.observe_metrics_export_interval_ms=30000","-Dagent.java.observe_tracing_sampling_interval_ms=1","-jar", "/petclinic.jar","--spring.profiles.active=mysql","--spring.datasource.petclinic.url=jdbc:mysql://db-1/petclinic","--spring.datasource.pii.url=jdbc:mysql://db-1/pii", "--server.port=8080", "--email.service.address=http://email-service-detection:8081/registerEmail"]
+
+  petclinic-app-assess:
+    command: [
+      "java","-javaagent:/contrast.jar",
+      "-Dagent.java.observe_tracing_sampling_limit=1000",
+      "-Dagent.java.observe_metrics_export_interval_ms=30000",
+      "-Dagent.java.observe_tracing_sampling_interval_ms=1",
+      "-jar", "/petclinic.jar","--spring.profiles.active=mysql",
+      "--spring.datasource.petclinic.url=jdbc:mysql://db-1/petclinic",
+      "--spring.datasource.pii.url=jdbc:mysql://db-1/pii", 
+      "--server.port=8080", 
+      "--email.service.address=http://email-service-assess:8080/registerEmail"]
     environment:
-      CONTRAST__SERVER__NAME: "${INITIALS}-ADR-QA"
-      CONTRAST__SERVER__ENVIRONMENT: "PRODUCTION"
+      CONTRAST__SERVER__NAME: "${INITIALS}-ADR-DEV"
+      CONTRAST__SERVER__ENVIRONMENT: "DEVELOPMENT"
       CONTRAST__APPLICATION__NAME: "${INITIALS}-ADR-${WEB_APPLICATION_NAME}"
       CONTRAST__ASSESS__ENABLE: ${CONTRAST__ASSESS__ENABLE}
-      CONTRAST__PROTECT__ENABLE: ${CONTRAST__PROTECT__ENABLE}
+      CONTRAST__PROTECT__ENABLE: False
       CONTRAST__OBSERVE__ENABLE: ${CONTRAST__OBSERVE__ENABLE}
+      CONTRAST__APPLICATION__SESSION_METADATA: "testRun=${PIPELINE_RUN_NUMBER}"
     image: local/petclinic:latest
-    container_name: petclinic-app-detection
+    container_name: petclinic-app-assess
     build:
       context: ./
       dockerfile: WebApplication/Dockerfile
-    ports:
-      - "8080:8080"
     depends_on:
       db-1:
         condition: service_healthy
-  petclinic-app-protection:
-    command: ["java","-javaagent:/contrast.jar","-Dagent.java.observe_tracing_sampling_limit=1000","-Dagent.java.observe_metrics_export_interval_ms=30000","-Dagent.java.observe_tracing_sampling_interval_ms=1","-jar", "/petclinic.jar","--spring.profiles.active=mysql","--spring.datasource.petclinic.url=jdbc:mysql://db-1/petclinic","--spring.datasource.pii.url=jdbc:mysql://db-1/pii", "--server.port=8180", "--email.service.address=http://email-service-protection:8181/registerEmail"]
+
+
+  petclinic-app-qa:
+    command: [
+      "java","-javaagent:/contrast.jar",
+      "-Dagent.java.observe_tracing_sampling_limit=1000",
+      "-Dagent.java.observe_metrics_export_interval_ms=30000",
+      "-Dagent.java.observe_tracing_sampling_interval_ms=1",
+      "-jar", "/petclinic.jar","--spring.profiles.active=mysql",
+      "--spring.datasource.petclinic.url=jdbc:mysql://db-1/petclinic",
+      "--spring.datasource.pii.url=jdbc:mysql://db-1/pii", 
+      "--server.port=8080", 
+      "--email.service.address=http://email-service-assess:8080/registerEmail"]
+    environment:
+      CONTRAST__SERVER__NAME: "${INITIALS}-ADR-QA"
+      CONTRAST__SERVER__ENVIRONMENT: "QA"
+      CONTRAST__APPLICATION__NAME: "${INITIALS}-ADR-${WEB_APPLICATION_NAME}"
+      CONTRAST__ASSESS__ENABLE: ${CONTRAST__ASSESS__ENABLE}
+      CONTRAST__PROTECT__ENABLE: False
+      CONTRAST__OBSERVE__ENABLE: ${CONTRAST__OBSERVE__ENABLE}
+      CONTRAST__APPLICATION__SESSION_METADATA: "testRun=${PIPELINE_RUN_NUMBER}"
+    image: local/petclinic:latest
+    container_name: petclinic-app-qa
+    build:
+      context: ./
+      dockerfile: WebApplication/Dockerfile
+
+
+  petclinic-app-protect:
+    command: [
+      "java","-javaagent:/contrast.jar",
+      "-Dagent.java.observe_tracing_sampling_limit=1000",
+      "-Dagent.java.observe_metrics_export_interval_ms=30000",
+      "-Dagent.java.observe_tracing_sampling_interval_ms=1",
+      "-jar", "/petclinic.jar","--spring.profiles.active=mysql",
+      "--spring.datasource.petclinic.url=jdbc:mysql://db-1/petclinic",
+      "--spring.datasource.pii.url=jdbc:mysql://db-1/pii", 
+      "--server.port=8080", 
+      "--email.service.address=http://email-service-protect:8080/registerEmail"
+              ]
     environment:
       CONTRAST__SERVER__NAME: "${INITIALS}-ADR-PROD"
       CONTRAST__SERVER__ENVIRONMENT: "PRODUCTION"
@@ -89,24 +154,12 @@ services:
       CONTRAST__ASSESS__ENABLE: ${CONTRAST__ASSESS__ENABLE}
       CONTRAST__PROTECT__ENABLE: ${CONTRAST__PROTECT__ENABLE}
       CONTRAST__OBSERVE__ENABLE: ${CONTRAST__OBSERVE__ENABLE}
+      CONTRAST__ASSESS__TAGS: "Production"
     image: local/petclinic:latest
-    container_name: petclinic-app-protection
+    container_name: petclinic-app-protect
     build:
       context: ./
       dockerfile: WebApplication/Dockerfile
-    ports:
-      - "8180:8180"
     depends_on:
       db-1:
         condition: service_healthy
-
-#  postgres:
-#    image: postgres:15.3
-#    ports:
-#      - "5432:5432"
-#    environment:
-#      - POSTGRES_PASSWORD=petclinic
-#      - POSTGRES_USER=petclinic
-#      - POSTGRES_DB=petclinic
-#    profiles:
-#    - postgres

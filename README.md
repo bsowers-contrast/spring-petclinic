@@ -32,3 +32,59 @@ Unfortunately, there isn’t a logout button yet, so in order to change your use
 - No-role User: U “bob” P “password”
 
 
+## Running PetClinic with Contrast AST/ADR/AVM with Docker Compose
+The docker-compose setup in this repository is configured to pull the latest 
+Contrast Agent version on build. It will start several instances of PetClinic
+to simulate Dev, QA and Prod environments.
+
+Each instance consists of two microservices: 
+1. Petclinic Web Application: `${INITIALS}-ADR-PetClinic-Web`
+2. PetClinic Email Service (for Log4Shell): `${INITIALS}-ADR-Email-Service`
+
+Plus a MySQL database, an Nginx reverse proxy and a Log4ShellServer (attacker controlled listener).
+
+Add a `contrast_security.yaml` file to the root of the repository with the 
+following minimum content (you can download one from the contrast platform):
+```yaml
+api: 
+  token: <your-agent-api-token>
+observe:
+  enable: true
+```
+
+To start the environment, run the following command:
+```bash
+docker-compose up --build
+```
+
+To stop the environment, run the following command:
+```bash
+docker-compose down -v
+```
+
+The Nginx reverse proxy resolves the following URLs to their respective 
+services, which will appear in Contrast under the Dev, QA, and Production 
+columns respectively:
+- `http://dev.petclinic:10000/` -> `petclinic-app-assess`
+- `http://qa.petclinic:10000/` -> `petclinic-app-qa`
+- `http://prod.petclinic:10000/` -> `petclinic-app-protect`
+
+
+To use the Nginx proxy locally on Mac, you will need to add the following to 
+your `/etc/hosts` file:
+```bash
+# Added for local demo environment
+127.0.0.1 dev.petclinic
+127.0.0.1 qa.petclinic
+127.0.0.1 prod.petclinic
+```
+
+## Exercising the applications to generate vulnerability findings and attack events
+1. Exercise the dev instance by browsing the application and using functionality
+as a user or QA tester normally would. Contrast will automatically detect
+vulnerabilities as you normally use the application.
+2. Attack vulnerable parts of the application in the Prod instance to generate
+attack events. For example:
+    - Use SQL Injection on the search field on `/customers` page: `' OR '1' = '1`
+    - Use the Log4Shell vulnerability in the Email Service to execute arbitrary
+    code on the server. For instructions see [Log4Shell-README.md](Log4Shell-README.md)
